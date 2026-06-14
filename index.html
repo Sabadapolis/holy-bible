@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Holy Bible">
+  <meta name="description" content="Complete Bible with reading plans, highlights, notes, and audio. Works offline.">
+  <link rel="manifest" href="manifest.json">
+  <title>Holy Bible</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════
+       SETUP SCREEN
+  ════════════════════════════════════════════ -->
+  <div id="setup-screen" class="setup-screen">
+    <div class="setup-card">
+      <div class="setup-cross">✝</div>
+      <h1>Holy Bible</h1>
+      <p class="setup-subtitle">King James Version · World English Bible</p>
+      <p class="setup-desc">
+        On first launch, the complete Bible text (~2 MB) is downloaded
+        once and saved permanently to your device for offline use.
+      </p>
+      <button id="download-btn" class="btn-primary btn-large">Download &amp; Open Bible</button>
+      <div id="progress-wrap" class="progress-wrap hidden">
+        <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+        <div id="progress-label" class="progress-label">Connecting…</div>
+      </div>
+      <div id="setup-error" class="setup-error hidden"></div>
+      <p class="setup-legal">
+        KJV &amp; WEB are public domain. NIV available online (requires internet).
+      </p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       MAIN APP
+  ════════════════════════════════════════════ -->
+  <div id="app" class="app hidden">
+
+    <!-- Mobile menu button (small screens) -->
+    <button id="mobile-menu-btn" class="mobile-menu-btn" aria-label="Open menu">☰</button>
+
+    <!-- ── SIDEBAR ── -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-top">
+        <div class="app-logo">
+          <span class="logo-cross">✝</span>
+          <span class="logo-text">Holy Bible</span>
+        </div>
+        <button id="sidebar-toggle" class="icon-btn" title="Collapse">‹</button>
+      </div>
+
+      <div class="search-wrap">
+        <input type="text" id="search-input" class="search-input"
+               placeholder="Search the Bible…" autocomplete="off" spellcheck="false">
+        <span class="search-icon">⌕</span>
+      </div>
+
+      <div class="sidebar-tabs">
+        <button class="stab active" data-tab="books">Books</button>
+        <button class="stab" data-tab="bookmarks">Saved</button>
+        <button class="stab" data-tab="notes">Notes</button>
+      </div>
+
+      <div id="tab-books" class="tab-pane active">
+        <div class="testament-group">
+          <div class="testament-label">Old Testament</div>
+          <div id="ot-books" class="book-list"></div>
+        </div>
+        <div class="testament-group">
+          <div class="testament-label">New Testament</div>
+          <div id="nt-books" class="book-list"></div>
+        </div>
+      </div>
+
+      <div id="tab-bookmarks" class="tab-pane">
+        <div id="bookmarks-list" class="side-list">
+          <div class="empty-msg">No bookmarks yet.<br>Click a verse to save it.</div>
+        </div>
+      </div>
+
+      <div id="tab-notes" class="tab-pane">
+        <div id="notes-list" class="side-list">
+          <div class="empty-msg">No notes yet.<br>Click a verse to add one.</div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button id="home-btn"     class="footer-btn" title="Home (H)">⌂</button>
+        <button id="plan-btn"     class="footer-btn" title="Reading Plan">📅</button>
+        <button id="theme-btn"    class="footer-btn" title="Dark / Light (D)">◑</button>
+        <button id="font-dec-btn" class="footer-btn" title="Smaller text">A−</button>
+        <button id="font-inc-btn" class="footer-btn" title="Larger text">A+</button>
+        <button id="settings-btn" class="footer-btn" title="Settings">⚙</button>
+      </div>
+    </aside>
+
+    <!-- ── MAIN ── -->
+    <main id="main" class="main">
+
+      <!-- Home -->
+      <section id="home-screen" class="screen home-screen-inner">
+        <div class="daily-card">
+          <div class="daily-label">✦ Verse of the Day</div>
+          <blockquote id="daily-text" class="daily-text"></blockquote>
+          <cite id="daily-ref" class="daily-ref"></cite>
+        </div>
+        <div class="quick-nav">
+          <h3 class="quick-nav-title">Popular Passages</h3>
+          <div class="quick-grid" id="quick-grid"></div>
+        </div>
+      </section>
+
+      <!-- Reader -->
+      <section id="reader-screen" class="screen reader-screen hidden">
+        <div class="reader-bar">
+          <button id="prev-ch"  class="nav-arrow" title="Previous chapter (←)">←</button>
+          <div class="reader-selects">
+            <select id="book-select" class="loc-select"></select>
+            <select id="ch-select"   class="loc-select"></select>
+          </div>
+          <select id="translation-sel" class="loc-select trans-sel" title="Translation">
+            <option value="kjv">KJV</option>
+            <option value="web">WEB</option>
+            <option value="niv">NIV ✦</option>
+          </select>
+          <button id="tts-toggle"  class="nav-arrow tts-launch-btn" title="Listen to this chapter">🔊</button>
+          <button id="next-ch"     class="nav-arrow" title="Next chapter (→)">→</button>
+        </div>
+
+        <!-- TTS Controls (shown when audio is active) -->
+        <div id="tts-bar" class="tts-bar hidden">
+          <button id="tts-play-pause" class="tts-btn tts-play-btn" title="Play / Pause">▶</button>
+          <button id="tts-stop"       class="tts-btn" title="Stop">■</button>
+          <div class="tts-progress">
+            <div id="tts-verse-label" class="tts-verse-label">Verse 1</div>
+            <div class="tts-bar-track">
+              <div id="tts-bar-fill" class="tts-bar-fill"></div>
+            </div>
+          </div>
+          <div class="tts-options">
+            <select id="tts-speed" title="Reading speed">
+              <option value="0.7">Slow</option>
+              <option value="0.9">×0.9</option>
+              <option value="1.0" selected>Normal</option>
+              <option value="1.25">Fast</option>
+              <option value="1.5">×1.5</option>
+            </select>
+            <select id="tts-voice" title="Voice"></select>
+          </div>
+        </div>
+
+        <div id="chapter-title" class="chapter-title"></div>
+        <div id="niv-notice"    class="niv-notice hidden">
+          ✦ NIV fetched via API.Bible · Internet required · Chapters cached offline after first load.
+          App store distribution requires a license from Biblica (biblica.com).
+        </div>
+        <div id="chapter-body"  class="chapter-body"></div>
+        <div class="chapter-nav-bottom">
+          <button id="prev-ch2" class="btn-secondary">← Previous</button>
+          <button id="next-ch2" class="btn-secondary">Next →</button>
+        </div>
+      </section>
+
+      <!-- Reading Plan -->
+      <section id="plan-screen" class="screen plan-screen hidden">
+        <div class="plan-hero">
+          <div class="plan-hero-icon">📅</div>
+          <h2 class="plan-title">365-Day Chronological Bible</h2>
+          <p class="plan-subtitle">Read the entire Bible in the order events occurred</p>
+          <div class="plan-meta-row">
+            <div class="plan-stat">
+              <span id="plan-days-done" class="plan-stat-num">0</span>
+              <span class="plan-stat-label">days complete</span>
+            </div>
+            <div class="plan-stat">
+              <span id="plan-streak" class="plan-stat-num">0</span>
+              <span class="plan-stat-label">day streak</span>
+            </div>
+            <div class="plan-stat">
+              <span id="plan-pct" class="plan-stat-num">0%</span>
+              <span class="plan-stat-label">of the Bible</span>
+            </div>
+          </div>
+          <div class="plan-progress-bar">
+            <div id="plan-progress-fill" class="plan-progress-fill"></div>
+          </div>
+        </div>
+
+        <!-- Today's reading -->
+        <div id="plan-today-section" class="plan-today-section">
+          <div class="plan-section-label">Today — Day <span id="plan-today-day">1</span></div>
+          <div id="plan-today-readings" class="plan-today-readings"></div>
+          <button id="plan-mark-done" class="btn-primary plan-mark-btn">✓ Mark Today Complete</button>
+        </div>
+
+        <!-- All days list -->
+        <div class="plan-section-label" style="padding: 0 32px; margin-top: 24px;">All 365 Days</div>
+        <div id="plan-days-list" class="plan-days-list"></div>
+      </section>
+
+      <!-- Search -->
+      <section id="search-screen" class="screen search-screen hidden">
+        <div class="search-hdr">
+          <h2 id="search-heading" class="search-heading"></h2>
+          <button id="search-close" class="icon-btn">✕</button>
+        </div>
+        <div id="search-results" class="search-results"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       VERSE ACTION MENU
+  ════════════════════════════════════════════ -->
+  <div id="verse-menu" class="verse-menu hidden">
+    <div class="vm-row">
+      <button class="vm-btn" id="vm-bookmark">🔖 Bookmark</button>
+      <button class="vm-btn" id="vm-note">📝 Note</button>
+      <button class="vm-btn" id="vm-copy">📋 Copy</button>
+    </div>
+    <div class="vm-row vm-highlights-row">
+      <span class="vm-label">Highlight:</span>
+      <button class="hl-dot" data-color="yellow" style="background:#FFE57F" title="Yellow"></button>
+      <button class="hl-dot" data-color="green"  style="background:#A5D6A7" title="Green"></button>
+      <button class="hl-dot" data-color="pink"   style="background:#F48FB1" title="Pink"></button>
+      <button class="hl-dot" data-color="blue"   style="background:#90CAF9" title="Blue"></button>
+      <button class="hl-dot hl-clear" data-color="none" title="Remove">✕</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       NOTE MODAL
+  ════════════════════════════════════════════ -->
+  <div id="note-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-hdr">
+        <h3 id="note-modal-title">Note</h3>
+        <button id="note-modal-close" class="icon-btn">✕</button>
+      </div>
+      <div id="note-verse-preview" class="note-verse-preview"></div>
+      <textarea id="note-textarea" class="note-textarea" placeholder="Write your note here…" rows="6"></textarea>
+      <div class="modal-footer">
+        <button id="note-delete-btn" class="btn-danger">Delete Note</button>
+        <button id="note-save-btn"   class="btn-primary">Save Note</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       SETTINGS MODAL
+  ════════════════════════════════════════════ -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-box">
+      <div class="modal-hdr">
+        <h3>Settings</h3>
+        <button id="settings-close" class="icon-btn">✕</button>
+      </div>
+      <div class="settings-body">
+        <div class="setting-row">
+          <label for="font-family-sel">Reading Font</label>
+          <select id="font-family-sel">
+            <option value="Georgia, serif">Georgia</option>
+            <option value="'Palatino Linotype', Palatino, serif">Palatino</option>
+            <option value="'Times New Roman', Times, serif">Times New Roman</option>
+            <option value="system-ui, sans-serif">System UI</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label for="line-height-sel">Line Spacing</label>
+          <select id="line-height-sel">
+            <option value="1.6">Compact</option>
+            <option value="1.9" selected>Normal</option>
+            <option value="2.4">Relaxed</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label for="verse-nums-chk">Show Verse Numbers</label>
+          <input type="checkbox" id="verse-nums-chk" checked>
+        </div>
+        <div class="setting-row">
+          <label>NIV API Key <span class="label-hint">free at scripture.api.bible</span></label>
+          <input type="text" id="api-bible-key" class="api-key-input" placeholder="Enter your free API.Bible key…">
+        </div>
+        <div class="setting-row">
+          <label>Reading Progress</label>
+          <div id="reading-progress" class="reading-progress-text"></div>
+        </div>
+        <hr>
+        <div class="setting-row">
+          <label>Plan Day Override</label>
+          <div class="plan-day-row">
+            <input type="number" id="plan-day-input" min="1" max="365" placeholder="Day #">
+            <button id="plan-day-set" class="btn-secondary btn-sm">Set</button>
+          </div>
+        </div>
+        <hr>
+        <hr>
+        <div class="setting-section-label">AI Voice Reading</div>
+        <div class="setting-row">
+          <label for="tts-provider-sel">Voice Provider</label>
+          <select id="tts-provider-sel">
+            <option value="browser">Browser Voice (free &amp; offline)</option>
+            <option value="elevenlabs">ElevenLabs AI (free tier, 10k chars/mo)</option>
+            <option value="openai">OpenAI TTS (most natural)</option>
+          </select>
+        </div>
+        <div id="el-key-row" class="setting-row" style="display:none">
+          <label>ElevenLabs Key <span class="label-hint">free at elevenlabs.io</span></label>
+          <input type="password" id="el-api-key" class="api-key-input" placeholder="Paste your ElevenLabs API key…">
+        </div>
+        <div id="oai-key-row" class="setting-row" style="display:none">
+          <label>OpenAI Key <span class="label-hint">platform.openai.com</span></label>
+          <input type="password" id="oai-api-key" class="api-key-input" placeholder="sk-…">
+        </div>
+        <hr>
+        <div class="setting-row">
+          <label>Clear User Data</label>
+          <button id="clear-data-btn" class="btn-danger btn-sm">Clear Highlights, Notes &amp; Bookmarks</button>
+        </div>
+        <div class="setting-row">
+          <label>Re-download Bible</label>
+          <button id="redownload-btn" class="btn-secondary btn-sm">Re-download KJV</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       WEB TRANSLATION DOWNLOAD TOAST
+  ════════════════════════════════════════════ -->
+  <div id="web-dl-bar" class="web-dl-bar hidden">
+    <span id="web-dl-text">Downloading World English Bible…</span>
+    <div class="web-dl-progress"><div id="web-dl-fill" class="web-dl-fill"></div></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
