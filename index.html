@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="classic-scroll">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +9,9 @@
   <meta name="description" content="Complete Bible with reading plans, highlights, notes, and audio. Works offline.">
   <link rel="manifest" href="manifest.json">
   <title>Holy Bible</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;1,400&family=Lato:wght@400;700&family=Inter:wght@400;500;600&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -125,9 +128,15 @@
             <select id="ch-select"   class="loc-select"></select>
           </div>
           <select id="translation-sel" class="loc-select trans-sel" title="Translation">
-            <option value="kjv">KJV</option>
-            <option value="web">WEB</option>
-            <option value="niv">NIV ✦</option>
+            <optgroup label="Public Domain">
+              <option value="kjv">KJV</option>
+              <option value="web">WEB</option>
+            </optgroup>
+            <optgroup label="Online · API Key">
+              <option value="niv">NIV ✦</option>
+              <option value="nlt">NLT ✦</option>
+              <option value="nasb20">NASB ✦</option>
+            </optgroup>
           </select>
           <button id="tts-toggle"  class="nav-arrow tts-launch-btn" title="Listen to this chapter">🔊</button>
           <button id="next-ch"     class="nav-arrow" title="Next chapter (→)">→</button>
@@ -155,15 +164,14 @@
           </div>
         </div>
 
-        <div id="chapter-title" class="chapter-title"></div>
-        <div id="niv-notice"    class="niv-notice hidden">
-          ✦ NIV fetched via API.Bible · Internet required · Chapters cached offline after first load.
-          App store distribution requires a license from Biblica (biblica.com).
-        </div>
-        <div id="chapter-body"  class="chapter-body"></div>
-        <div class="chapter-nav-bottom">
-          <button id="prev-ch2" class="btn-secondary">← Previous</button>
-          <button id="next-ch2" class="btn-secondary">Next →</button>
+        <div class="reader-content">
+          <div id="chapter-title" class="chapter-title"></div>
+          <div id="niv-notice"    class="niv-notice hidden"></div>
+          <div id="chapter-body"  class="chapter-body"></div>
+          <div class="chapter-nav-bottom">
+            <button id="prev-ch2" class="btn-secondary">← Previous</button>
+            <button id="next-ch2" class="btn-secondary">Next →</button>
+          </div>
         </div>
       </section>
 
@@ -263,6 +271,22 @@
         <button id="settings-close" class="icon-btn">✕</button>
       </div>
       <div class="settings-body">
+
+        <div class="setting-section-label">Theme</div>
+        <div class="setting-row">
+          <div class="theme-buttons">
+            <button class="theme-btn-opt" data-theme-name="classic-scroll">
+              <div class="theme-swatch" style="background:linear-gradient(135deg,#ede0c4 50%,#c49020 50%)"></div>
+              Classic Scroll
+            </button>
+            <button class="theme-btn-opt" data-theme-name="modern-night">
+              <div class="theme-swatch" style="background:linear-gradient(135deg,#0d1117 50%,#6b9be8 50%)"></div>
+              Modern Night
+            </button>
+          </div>
+        </div>
+
+        <div class="setting-section-label">Reading</div>
         <div class="setting-row">
           <label for="font-family-sel">Reading Font</label>
           <select id="font-family-sel">
@@ -284,9 +308,10 @@
           <label for="verse-nums-chk">Show Verse Numbers</label>
           <input type="checkbox" id="verse-nums-chk" checked>
         </div>
+        <div class="setting-section-label">Online Translations (NIV · NLT · NASB)</div>
         <div class="setting-row">
-          <label>NIV API Key <span class="label-hint">free at scripture.api.bible</span></label>
-          <input type="text" id="api-bible-key" class="api-key-input" placeholder="Enter your free API.Bible key…">
+          <label>API.Bible Key <span class="label-hint">free at scripture.api.bible</span></label>
+          <input type="text" id="api-bible-key" class="api-key-input" placeholder="Paste your free API key…">
         </div>
         <div class="setting-row">
           <label>Reading Progress</label>

@@ -181,11 +181,28 @@ function buildChronoPlan() {
 
 // Bible data sources
 const KJV_URL = 'https://cdn.jsdelivr.net/gh/thiagobodruk/bible@master/json/en_kjv.json';
-const WEB_URL = 'https://raw.githubusercontent.com/thiagobodruk/bible/master/json/en_web.json';
+const WEB_URL = 'https://cdn.jsdelivr.net/gh/scrollmapper/bible_databases@master/json/t_web.json';
 
-// API.Bible (scripture.api.bible) — NIV translation
+// scrollmapper/bible_databases flat format → our nested format converter
+function convertScrollmapperBible(flat) {
+  const books = [];
+  for (const row of flat) {
+    const bi = row.b - 1, ci = row.c - 1, vi = row.v - 1;
+    if (!books[bi]) books[bi] = { name: BOOKS[bi]?.[0] || '', chapters: [] };
+    if (!books[bi].chapters[ci]) books[bi].chapters[ci] = [];
+    books[bi].chapters[ci][vi] = row.t;
+  }
+  return books;
+}
+
+// API.Bible (scripture.api.bible) — licensed translations
 // Free tier: 5,000 requests/day. Get a key at https://scripture.api.bible/signup
-const APIBIBLE_NIV_ID = '78a9f6124f344018-01';
+const APIBIBLE_NIV_ID = '78a9f6124f344018-01'; // kept for legacy cache keys
+const API_BIBLE_TRANSLATIONS = {
+  niv:    { id: '78a9f6124f344018-01', name: 'NIV',   full: 'New International Version' },
+  nlt:    { id: '65eec8e0b60e656b-01', name: 'NLT',   full: 'New Living Translation' },
+  nasb20: { id: 'c315fa9f71d4af3a-01', name: 'NASB',  full: 'New American Standard Bible 2020' },
+};
 const APIBIBLE_BOOK_IDS = [
   'GEN','EXO','LEV','NUM','DEU','JOS','JDG','RUT','1SA','2SA',
   '1KI','2KI','1CH','2CH','EZR','NEH','EST','JOB','PSA','PRO',
@@ -225,7 +242,7 @@ const S = {
   translation:  'kjv',       // current translation key
   book:         0,
   chapter:      0,
-  theme:        'light',
+  theme:        'classic-scroll',
   fontSize:     18,
   fontFamily:   'Georgia, serif',
   lineHeight:   1.9,
@@ -325,7 +342,12 @@ async function loadUserData() {
 
 async function loadSettings() {
   const s = (await dbGet('settings')) || {};
-  if (s.theme)         S.theme        = s.theme;
+  if (s.theme) {
+    // migrate old theme names
+    if (s.theme === 'light') S.theme = 'classic-scroll';
+    else if (s.theme === 'dark') S.theme = 'modern-night';
+    else S.theme = s.theme;
+  }
   if (s.fontSize)      S.fontSize     = s.fontSize;
   if (s.fontFamily)    S.fontFamily   = s.fontFamily;
   if (s.lineHeight)    S.lineHeight   = s.lineHeight;
@@ -371,53 +393,54 @@ async function downloadBible(url, onProgress) {
 }
 
 // ─────────────────────────────────────────────
-// NIV — fetch via API.Bible (scripture.api.bible)
-// Requires a FREE API key — sign up at https://scripture.api.bible/signup
-// Key is entered in Settings. Chapters are cached in IndexedDB after first fetch.
-// Legal note: personal use fine; app store distribution requires a Biblica license.
+// API.Bible fetch — handles NIV, NLT, NASB20
+// Free key at https://scripture.api.bible/signup (5,000 req/day)
+// Chapters cached in IndexedDB after first fetch.
 // ─────────────────────────────────────────────
-async function fetchNIVChapter(b, c) {
-  const cacheKey = `niv:${b}:${c}`;
-  const cached = await dbGet(cacheKey);
+async function fetchAPIBibleChapter(b, c, transKey) {
+  const tInfo = API_BIBLE_TRANSLATIONS[transKey];
+  if (!tInfo) throw new Error(`Unknown translation: ${transKey}`);
+
+  const cacheKey = `${transKey}:${b}:${c}`;
+  const cached   = await dbGet(cacheKey);
   if (cached) return cached;
 
   if (!S.apiBibleKey) {
     throw new Error(
-      'An API key is required for NIV. Get a free key at scripture.api.bible, ' +
-      'then enter it in Settings → NIV API Key.'
+      `An API key is required for ${tInfo.name}. ` +
+      'Get a free key at scripture.api.bible, then enter it in Settings.'
     );
   }
 
-  const bookId    = APIBIBLE_BOOK_IDS[b];
-  const chapterId = `${bookId}.${c + 1}`;
+  const chapterId = `${APIBIBLE_BOOK_IDS[b]}.${c + 1}`;
   const endpoint  =
-    `https://api.scripture.api.bible/v1/bibles/${APIBIBLE_NIV_ID}/chapters/${chapterId}` +
+    `https://api.scripture.api.bible/v1/bibles/${tInfo.id}/chapters/${chapterId}` +
     `?content-type=text&include-notes=false&include-titles=false` +
     `&include-chapter-numbers=false&include-verse-numbers=true&include-verse-spans=false`;
 
   const res = await fetch(endpoint, { headers: { 'api-key': S.apiBibleKey } });
 
   if (!res.ok) {
-    if (res.status === 401) throw new Error('Invalid API key. Check Settings → NIV API Key.');
-    if (res.status === 403) throw new Error('API key not authorized for NIV. Verify at scripture.api.bible.');
+    if (res.status === 401) throw new Error('Invalid API key. Check Settings.');
+    if (res.status === 403) throw new Error(`${tInfo.name} not authorized. Check scripture.api.bible.`);
+    if (res.status === 404) throw new Error(`${tInfo.name} not available on this API key tier.`);
     throw new Error(`API.Bible: HTTP ${res.status}`);
   }
 
   const data    = await res.json();
   const rawText = (data.data?.content || '').replace(/\n/g, ' ');
-
-  // API.Bible returns text with verse numbers in brackets: "[1] In the beginning..."
-  const verses = [];
-  const re = /\[(\d+)\]([^\[]*)/g;
+  const verses  = [];
+  const re      = /\[(\d+)\]([^\[]*)/g;
   let m;
   while ((m = re.exec(rawText)) !== null) {
     verses[parseInt(m[1], 10) - 1] = m[2].trim();
   }
-
-  if (!verses.length) throw new Error('No verse content returned. Check your API key.');
+  if (!verses.length) throw new Error('No verse content returned. Verify your API key.');
   await dbSet(cacheKey, verses);
   return verses;
 }
+// Legacy alias so any cached references still resolve
+const fetchNIVChapter = (b, c) => fetchAPIBibleChapter(b, c, 'niv');
 
 // ─────────────────────────────────────────────
 // WEB TRANSLATION DOWNLOAD
@@ -429,10 +452,15 @@ async function downloadWEB() {
   show(bar);
 
   try {
-    const data = await downloadBible(WEB_URL, p => {
-      fill.style.width = (p < 0 ? 50 : Math.round(p * 100)) + '%';
+    const rawData = await downloadBible(WEB_URL, p => {
+      fill.style.width = (p < 0 ? 40 : Math.round(p * 100)) + '%';
       txt.textContent  = p < 0 ? 'Downloading WEB…' : `Downloading WEB… ${Math.round(p*100)}%`;
     });
+    txt.textContent = 'Processing…';
+    // scrollmapper flat format: [{b,c,v,t}] — detect by first element shape
+    const data = (Array.isArray(rawData) && rawData[0]?.b !== undefined)
+      ? convertScrollmapperBible(rawData)
+      : rawData;
     if (!Array.isArray(data) || data.length < 60) throw new Error('Bad data');
     await dbSet('bible-web', data);
     S.bibles.web = data;
@@ -451,9 +479,11 @@ async function downloadWEB() {
 // ─────────────────────────────────────────────
 function applyTheme() {
   document.documentElement.setAttribute('data-theme', S.theme);
+  document.querySelectorAll('.theme-btn-opt').forEach(btn =>
+    btn.classList.toggle('active', btn.dataset.themeName === S.theme));
 }
 function toggleTheme() {
-  S.theme = S.theme === 'light' ? 'dark' : 'light';
+  S.theme = S.theme === 'classic-scroll' ? 'modern-night' : 'classic-scroll';
   applyTheme(); saveSettings();
 }
 
@@ -598,18 +628,23 @@ async function renderChapter() {
   $('chapter-title').textContent = `${bookName(b)}  —  Chapter ${c+1}`;
   applyReadingStyle();
 
-  // NIV: fetch if needed
-  if (S.translation === 'niv') {
-    show($('niv-notice'));
-    $('chapter-body').innerHTML = '<div class="search-no-results">Loading NIV…</div>';
+  // API.Bible translations (NIV, NLT, NASB20)
+  const apiTrans = API_BIBLE_TRANSLATIONS[S.translation];
+  if (apiTrans) {
+    const notice = $('niv-notice');
+    notice.textContent =
+      `✦ ${apiTrans.full} · Fetched via API.Bible · Requires internet · ` +
+      `App store distribution may require additional licensing.`;
+    show(notice);
+    $('chapter-body').innerHTML = `<div class="search-no-results">Loading ${apiTrans.name}…</div>`;
     try {
-      const verses = await fetchNIVChapter(b, c);
+      const verses = await fetchAPIBibleChapter(b, c, S.translation);
       renderVerses(b, c, verses);
     } catch(err) {
       $('chapter-body').innerHTML =
         `<div class="search-no-results">
-           Could not load NIV: ${err.message}<br>
-           Check your internet connection, or switch to KJV/WEB.
+           Could not load ${apiTrans.name}: ${err.message}<br>
+           Switch to KJV or WEB to read offline.
          </div>`;
     }
     return;
@@ -1156,6 +1191,7 @@ function openSettings() {
   $('el-api-key').value         = S.elKey;
   $('oai-api-key').value        = S.oaiKey;
   _syncAISettingsVisibility();
+  applyTheme(); // sync theme button active states
   show($('settings-modal'));
 }
 
@@ -1214,6 +1250,10 @@ function wireEvents() {
   $('home-btn').onclick     = () => { showHomeScreen(); renderHome(); };
   $('plan-btn').onclick     = showPlanScreen;
   $('theme-btn').onclick    = toggleTheme;
+  // Theme selector buttons inside settings modal
+  document.querySelectorAll('.theme-btn-opt').forEach(btn => {
+    btn.onclick = () => { S.theme = btn.dataset.themeName; applyTheme(); saveSettings(); };
+  });
   $('font-dec-btn').onclick = () => changeFontSize(-1);
   $('font-inc-btn').onclick = () => changeFontSize(+1);
   $('settings-btn').onclick = openSettings;
