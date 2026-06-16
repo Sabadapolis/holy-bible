@@ -1,28 +1,50 @@
-/* Holy Bible — Service Worker
-   Caches app shell for offline use.
-   Bible text is stored in IndexedDB by the app itself. */
+/* Holy Bible — Service Worker  v3.1
+   Strategy:
+     - App shell (HTML/CSS/JS): network-first, cache as fallback
+       → new deployments appear immediately without clearing cache
+     - Bible JSON: stored in IndexedDB by the app, not intercepted here
+     - External CDN / API calls: always pass through (no cache)
+*/
 
-const CACHE = 'holy-bible-app-v1';
+const SW_VERSION = '3.1';
+const CACHE = `holy-bible-${SW_VERSION}`;
 const SHELL = ['./', './index.html', './styles.css', './app.js', './manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())
+    caches.open(CACHE)
+      .then(c => c.addAll(SHELL))
+      .then(() => self.skipWaiting())   // activate immediately
   );
 });
 
 self.addEventListener('activate', e => {
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE).map(k => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())  // take control of open tabs
   );
 });
 
 self.addEventListener('fetch', e => {
-  // Only cache same-origin requests; let Bible CDN/API calls pass through
-  if (!e.request.url.startsWith(self.location.origin)) return;
+  const url = new URL(e.request.url);
+
+  // Let external requests (CDN, APIs) pass through unmodified
+  if (url.origin !== self.location.origin) return;
+
+  // App shell: network-first so updates are always visible
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request))
+    fetch(e.request, { cache: 'no-store' })
+      .then(res => {
+        // Cache a fresh copy on success
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(e.request, clone));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request))  // offline fallback
   );
 });

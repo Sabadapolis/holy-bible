@@ -181,7 +181,12 @@ function buildChronoPlan() {
 
 // Bible data sources
 const KJV_URL = 'https://cdn.jsdelivr.net/gh/thiagobodruk/bible@master/json/en_kjv.json';
-const WEB_URL = 'https://cdn.jsdelivr.net/gh/scrollmapper/bible_databases@master/json/t_web.json';
+// WEB Bible — try sources in order until one works
+const WEB_URLS = [
+  'https://raw.githubusercontent.com/scrollmapper/bible_databases/master/json/t_web.json',
+  'https://raw.githubusercontent.com/scrollmapper/bible_databases/refs/heads/master/json/t_web.json',
+  'https://cdn.jsdelivr.net/gh/scrollmapper/bible_databases@master/json/t_web.json',
+];
 
 // scrollmapper/bible_databases flat format → our nested format converter
 function convertScrollmapperBible(flat) {
@@ -444,6 +449,7 @@ const fetchNIVChapter = (b, c) => fetchAPIBibleChapter(b, c, 'niv');
 
 // ─────────────────────────────────────────────
 // WEB TRANSLATION DOWNLOAD
+// Tries each URL in WEB_URLS until one succeeds.
 // ─────────────────────────────────────────────
 async function downloadWEB() {
   const bar  = $('web-dl-bar');
@@ -451,27 +457,35 @@ async function downloadWEB() {
   const txt  = $('web-dl-text');
   show(bar);
 
-  try {
-    const rawData = await downloadBible(WEB_URL, p => {
-      fill.style.width = (p < 0 ? 40 : Math.round(p * 100)) + '%';
-      txt.textContent  = p < 0 ? 'Downloading WEB…' : `Downloading WEB… ${Math.round(p*100)}%`;
-    });
-    txt.textContent = 'Processing…';
-    // scrollmapper flat format: [{b,c,v,t}] — detect by first element shape
-    const data = (Array.isArray(rawData) && rawData[0]?.b !== undefined)
-      ? convertScrollmapperBible(rawData)
-      : rawData;
-    if (!Array.isArray(data) || data.length < 60) throw new Error('Bad data');
-    await dbSet('bible-web', data);
-    S.bibles.web = data;
-    hide(bar);
-    showToast('World English Bible downloaded — now available offline');
-    return data;
-  } catch (err) {
-    hide(bar);
-    showToast('WEB download failed: ' + err.message);
-    throw err;
+  let lastErr = null;
+  for (let i = 0; i < WEB_URLS.length; i++) {
+    const url = WEB_URLS[i];
+    try {
+      txt.textContent = `Connecting (source ${i + 1}/${WEB_URLS.length})…`;
+      fill.style.width = '0%';
+      const rawData = await downloadBible(url, p => {
+        fill.style.width = (p < 0 ? 35 : Math.round(p * 100)) + '%';
+        txt.textContent  = p < 0 ? 'Downloading WEB…' : `Downloading WEB… ${Math.round(p * 100)}%`;
+      });
+      txt.textContent = 'Processing…';
+      const data = (Array.isArray(rawData) && rawData[0]?.b !== undefined)
+        ? convertScrollmapperBible(rawData)
+        : rawData;
+      if (!Array.isArray(data) || data.length < 60) throw new Error('Unexpected data format');
+      await dbSet('bible-web', data);
+      S.bibles.web = data;
+      fill.style.width = '100%';
+      setTimeout(() => hide(bar), 600);
+      showToast('World English Bible downloaded — now available offline ✓');
+      return data;
+    } catch (err) {
+      lastErr = err;
+    }
   }
+
+  hide(bar);
+  showToast('WEB download failed after all sources: ' + (lastErr?.message || 'unknown error'));
+  throw lastErr;
 }
 
 // ─────────────────────────────────────────────
@@ -1420,20 +1434,195 @@ function launchApp() {
 // ─────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// TUTORIAL
+// ─────────────────────────────────────────────
+const TUTORIAL_STEPS = [
+  {
+    title: 'Welcome to Holy Bible!',
+    desc:  'This quick tour shows you everything the app can do. Tap Next to begin, or Skip to jump straight in.',
+    target: null,
+  },
+  {
+    title: 'Browse Books',
+    desc:  'The sidebar lists every book of the Bible. Tap any book to expand its chapters, then tap a chapter to read it.',
+    target: '#ot-books',
+  },
+  {
+    title: 'Search the Bible',
+    desc:  'Type any word or phrase in the search box to find every verse that contains it — across all 66 books.',
+    target: '#search-input',
+  },
+  {
+    title: 'Switch Translations',
+    desc:  'Use the translation selector in the reader bar to switch between KJV, WEB (offline) and NIV/NLT/NASB (requires a free API.Bible key in Settings).',
+    target: '#translation-sel',
+  },
+  {
+    title: 'Interact with Verses',
+    desc:  'Tap any verse to open the action menu. You can highlight it in four colors, add a personal note, bookmark it, or copy it to share.',
+    target: '#chapter-body',
+  },
+  {
+    title: 'Listen to a Chapter',
+    desc:  'Press the 🔊 button to have the chapter read aloud. Choose your reading speed and voice in the audio bar that appears.',
+    target: '#tts-toggle',
+  },
+  {
+    title: 'Bookmarks & Notes',
+    desc:  'Your saved bookmarks and notes appear in the "Saved" and "Notes" tabs at the top of the sidebar — always one tap away.',
+    target: '.sidebar-tabs',
+  },
+  {
+    title: '365-Day Reading Plan',
+    desc:  'Tap the 📅 button to open the chronological reading plan. Mark each day complete and track your streak as you read through the entire Bible in one year.',
+    target: '#plan-btn',
+  },
+  {
+    title: 'Themes & Font Size',
+    desc:  'Press ◑ to toggle between the Classic Scroll and Modern Night themes. Use A− and A+ to adjust the text size to your comfort.',
+    target: '.sidebar-footer',
+  },
+  {
+    title: 'Settings & AI Voices',
+    desc:  'Open Settings (⚙) to pick your reading font, line spacing, add API keys for online translations, or upgrade to AI-quality voices via ElevenLabs or OpenAI.',
+    target: '#settings-btn',
+  },
+];
+
+const Tutorial = {
+  step: 0,
+  _overlay: null,
+  _box: null,
+  _spotlight: null,
+
+  start() {
+    this.step = 0;
+    this._overlay   = $('tutorial-overlay');
+    this._box       = $('tutorial-box');
+    this._spotlight = $('tutorial-spotlight');
+    this._buildDots();
+    show(this._overlay);
+    this._show(0);
+  },
+
+  _buildDots() {
+    const dots = $('tutorial-dots');
+    dots.innerHTML = '';
+    TUTORIAL_STEPS.forEach((_, i) => {
+      const d = document.createElement('div');
+      d.className = 'tutorial-dot' + (i === 0 ? ' active' : '');
+      dots.appendChild(d);
+    });
+  },
+
+  _updateDots(step) {
+    $('tutorial-dots').querySelectorAll('.tutorial-dot').forEach((d, i) => {
+      d.classList.toggle('active', i === step);
+    });
+  },
+
+  _show(step) {
+    const s = TUTORIAL_STEPS[step];
+    $('tutorial-title').textContent     = s.title;
+    $('tutorial-desc').textContent      = s.desc;
+    $('tutorial-step-badge').textContent = `${step + 1} / ${TUTORIAL_STEPS.length}`;
+    $('tutorial-next').textContent      = step < TUTORIAL_STEPS.length - 1 ? 'Next →' : 'Done ✓';
+    this._updateDots(step);
+    this._positionSpotlightAndBox(s.target);
+  },
+
+  _positionSpotlightAndBox(selector) {
+    const sp   = this._spotlight;
+    const box  = this._box;
+    const PAD  = 10;
+
+    const backdrop = this._overlay.querySelector('.tutorial-backdrop');
+
+    if (!selector) {
+      sp.style.cssText = 'display:none';
+      backdrop.classList.remove('has-spotlight');
+      Object.assign(box.style, {
+        top: '50%', left: '50%',
+        transform: 'translate(-50%,-50%)',
+      });
+      return;
+    }
+
+    const el = document.querySelector(selector);
+    if (!el) {
+      sp.style.cssText = 'display:none';
+      backdrop.classList.remove('has-spotlight');
+      Object.assign(box.style, {
+        top: '50%', left: '50%',
+        transform: 'translate(-50%,-50%)',
+      });
+      return;
+    }
+
+    backdrop.classList.add('has-spotlight');
+
+    const r  = el.getBoundingClientRect();
+    sp.style.cssText = '';
+    Object.assign(sp.style, {
+      top:    (r.top    - PAD) + 'px',
+      left:   (r.left   - PAD) + 'px',
+      width:  (r.width  + PAD * 2) + 'px',
+      height: (r.height + PAD * 2) + 'px',
+    });
+
+    // Place box below target; if not enough room place above
+    const BOX_H = 200;
+    const vp    = window.innerHeight;
+    const vw    = window.innerWidth;
+    box.style.transform = '';
+
+    let top  = r.bottom + PAD + 16;
+    let left = Math.max(12, r.left);
+    if (top + BOX_H > vp - 12)  top  = r.top - BOX_H - PAD - 16;
+    if (top < 12)                top  = 12;
+    if (left + 350 > vw - 12)   left = vw - 362;
+    if (left < 12)               left = 12;
+
+    Object.assign(box.style, { top: top + 'px', left: left + 'px' });
+  },
+
+  next() {
+    if (this.step < TUTORIAL_STEPS.length - 1) {
+      this.step++;
+      this._show(this.step);
+    } else {
+      this.end();
+    }
+  },
+
+  end() {
+    hide($('tutorial-overlay'));
+    dbSet('tutorial-done', true);
+  },
+};
+
 async function init() {
   wireEvents();
   $('download-btn').onclick = startDownload;
   await loadSettings();
   applyTheme();
 
+  // Tutorial buttons
+  $('tutorial-next').onclick = () => Tutorial.next();
+  $('tutorial-skip').onclick = () => Tutorial.end();
+  $('tutorial-btn').onclick  = () => Tutorial.start();
+
   const kjv = await dbGet('bible-kjv');
   if (kjv && Array.isArray(kjv) && kjv.length >= 60) {
     S.bibles.kjv = kjv;
     await loadUserData();
-    // Load cached WEB if available
     const web = await dbGet('bible-web');
     if (web) S.bibles.web = web;
     launchApp();
+    // Show tutorial automatically on first ever launch
+    const tutDone = await dbGet('tutorial-done');
+    if (!tutDone) Tutorial.start();
   } else {
     show($('setup-screen'));
     hide($('app'));
