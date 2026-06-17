@@ -334,6 +334,7 @@ function saveUserData() {
   dbSet('readChapters', S.readChapters);
   dbSet('planDone',     S.planDone);
   dbSet('planDay',      S.planDay);
+  updateUserPanel();
 }
 
 async function loadUserData() {
@@ -596,6 +597,9 @@ function renderHome() {
     `<button class="quick-btn" onclick="navigateTo(${b},${c},0)">
        <span class="quick-btn-book">${sub}</span>${label}
      </button>`).join('');
+
+  renderHomePlanCard();
+  renderHomeStats();
 }
 
 // ─────────────────────────────────────────────
@@ -664,6 +668,7 @@ async function renderChapter() {
     return;
   }
 
+  updateReaderPlanIndicator();
   hide($('niv-notice'));
 
   // WEB: download if not cached
@@ -1422,6 +1427,7 @@ function launchApp() {
   renderHome();
   renderBookmarksList();
   renderNotesList();
+  updateUserPanel();
   applyTheme();
   applyReadingStyle();
 
@@ -1435,58 +1441,178 @@ function launchApp() {
 // INIT
 // ─────────────────────────────────────────────
 // ─────────────────────────────────────────────
+// DASHBOARD HELPERS
+// ─────────────────────────────────────────────
+function calcStreak() {
+  let streak = 0;
+  for (let d = S.planDay - 1; d >= 1; d--) {
+    if (S.planDone[d]) streak++;
+    else break;
+  }
+  return streak;
+}
+
+function renderHomePlanCard() {
+  const el = $('home-plan-card');
+  if (!el || !S.chronoPlan) return;
+
+  const day  = S.planDay;
+  const done = Object.keys(S.planDone).length;
+  const pct  = Math.round((done / 365) * 100);
+  const streak = calcStreak();
+  const readings = S.chronoPlan[day - 1] || [];
+  const todayDone = !!S.planDone[day];
+
+  const chipsHtml = readings.slice(0, 5).map(([b, c]) =>
+    `<button class="home-chip" onclick="navigateTo(${b},${c},-1)">${chapterRefStr(b, c)}</button>`
+  ).join('') + (readings.length > 5
+    ? `<span class="home-chip-more">+${readings.length - 5} more</span>` : '');
+
+  const firstReading = readings[0];
+  const continueTarget = firstReading
+    ? `navigateTo(${firstReading[0]},${firstReading[1]},-1)`
+    : 'showPlanScreen()';
+
+  el.innerHTML = `
+    <div class="hp-header">
+      <div class="hp-title-row">
+        <span class="hp-icon">📅</span>
+        <span class="hp-title">365-Day Chronological Bible</span>
+        ${streak > 1 ? `<span class="hp-streak">🔥 ${streak}-day streak</span>` : ''}
+      </div>
+    </div>
+    <div class="hp-body">
+      <div class="hp-progress-row">
+        <div class="hp-day-label">Day <strong>${day}</strong> of 365</div>
+        <div class="hp-pct">${pct}% complete</div>
+      </div>
+      <div class="hp-progress-bar"><div class="hp-progress-fill" style="width:${pct}%"></div></div>
+      <div class="hp-readings-label">Today's Reading — Day ${day}</div>
+      <div class="hp-chips">${chipsHtml || '<span class="home-chip-more">No readings assigned</span>'}</div>
+    </div>
+    <div class="hp-footer">
+      <button class="btn-primary hp-continue-btn" onclick="${todayDone ? 'showPlanScreen()' : continueTarget}">
+        ${todayDone ? '✓ Today Complete — View Full Plan' : '→ Continue Today\'s Reading'}
+      </button>
+      ${!todayDone ? `<button class="btn-secondary hp-mark-btn" onclick="homePlanMarkDone()">Mark Complete</button>` : ''}
+    </div>`;
+}
+
+function renderHomeStats() {
+  const el = $('home-stats-row');
+  if (!el) return;
+  const notes  = Object.keys(S.notes).length;
+  const bm     = S.bookmarks.length;
+  const chRead = Object.keys(S.readChapters).length;
+  const hl     = Object.keys(S.highlights).length;
+
+  const cards = [
+    { num: notes,  label: '📝 Notes',         action: "switchTab('notes')" },
+    { num: bm,     label: '🔖 Bookmarks',     action: "switchTab('bookmarks')" },
+    { num: chRead, label: '📖 Chapters Read',  action: '' },
+    ...(hl > 0 ? [{ num: hl, label: '✨ Highlights', action: '' }] : []),
+  ];
+
+  el.innerHTML = cards.map(({ num, label, action }) =>
+    `<div class="home-stat-card" ${action ? `onclick="${action}"` : ''}>
+       <div class="hsc-num">${num}</div>
+       <div class="hsc-label">${label}</div>
+     </div>`
+  ).join('');
+}
+
+function homePlanMarkDone() {
+  planMarkDone();
+  renderHomePlanCard();
+  updateUserPanel();
+}
+
+function updateUserPanel() {
+  const notes  = Object.keys(S.notes).length;
+  const bm     = S.bookmarks.length;
+  const streak = calcStreak();
+
+  const planLine  = $('su-plan-line');
+  const statsLine = $('su-mini-stats');
+  if (planLine)  planLine.textContent  = `Day ${S.planDay} of 365`;
+  if (statsLine) statsLine.textContent =
+    `📝 ${notes}  ·  🔖 ${bm}${streak > 0 ? `  ·  🔥 ${streak}` : ''}`;
+}
+
+function updateReaderPlanIndicator() {
+  const el = $('reader-plan-indicator');
+  if (!el || !S.chronoPlan) return;
+
+  const day      = S.planDay;
+  const readings = S.chronoPlan[day - 1] || [];
+  const isToday  = readings.some(([b, c]) => b === S.book && c === S.chapter);
+
+  if (!isToday) { hide(el); return; }
+
+  const done = !!S.planDone[day];
+  el.innerHTML = done
+    ? `<span class="rpi-badge rpi-done">✓ Day ${day} Complete</span>`
+    : `<span class="rpi-badge">📅 Day ${day} of 365 — Today's Reading</span>
+       <button class="rpi-mark" onclick="homePlanMarkDone(); updateReaderPlanIndicator();">Mark Complete</button>`;
+  show(el);
+}
+
+// ─────────────────────────────────────────────
 // TUTORIAL
 // ─────────────────────────────────────────────
 const TUTORIAL_STEPS = [
   {
     title: 'Welcome to Holy Bible!',
-    desc:  'This quick tour shows you everything the app can do. Tap Next to begin, or Skip to jump straight in.',
+    desc:  'This quick tour shows you everything the app can do. Tap Next to begin, or Skip Tour to jump straight in.',
     target: null,
   },
   {
     title: 'Browse Books',
-    desc:  'The sidebar lists every book of the Bible. Tap any book to expand its chapters, then tap a chapter to read it.',
+    desc:  'The sidebar lists every book of the Bible. Tap any book name to navigate to it — Old Testament above, New Testament below.',
     target: '#ot-books',
   },
   {
     title: 'Search the Bible',
-    desc:  'Type any word or phrase in the search box to find every verse that contains it — across all 66 books.',
+    desc:  'Type any word or phrase here to search all 66 books instantly. Results are clickable and take you straight to the verse.',
     target: '#search-input',
   },
   {
     title: 'Switch Translations',
-    desc:  'Use the translation selector in the reader bar to switch between KJV, WEB (offline) and NIV/NLT/NASB (requires a free API.Bible key in Settings).',
+    desc:  'Use the translation selector in the reader bar to switch between KJV and WEB (offline), or NIV/NLT/NASB via a free API.Bible key in Settings.',
     target: '#translation-sel',
+    requiresReader: true,
   },
   {
     title: 'Interact with Verses',
-    desc:  'Tap any verse to open the action menu. You can highlight it in four colors, add a personal note, bookmark it, or copy it to share.',
+    desc:  'Tap any verse to open the action menu — highlight it in four colors, add a personal note, bookmark it, or copy it to share.',
     target: '#chapter-body',
+    requiresReader: true,
   },
   {
     title: 'Listen to a Chapter',
-    desc:  'Press the 🔊 button to have the chapter read aloud. Choose your reading speed and voice in the audio bar that appears.',
+    desc:  'Tap the 🔊 button to hear the chapter read aloud. Control speed and voice in the audio bar that appears beneath the reader toolbar.',
     target: '#tts-toggle',
+    requiresReader: true,
   },
   {
     title: 'Bookmarks & Notes',
-    desc:  'Your saved bookmarks and notes appear in the "Saved" and "Notes" tabs at the top of the sidebar — always one tap away.',
+    desc:  'Your saved bookmarks and notes appear in the "Saved" and "Notes" tabs in the sidebar — always one tap away from anywhere in the app.',
     target: '.sidebar-tabs',
   },
   {
     title: '365-Day Reading Plan',
-    desc:  'Tap the 📅 button to open the chronological reading plan. Mark each day complete and track your streak as you read through the entire Bible in one year.',
+    desc:  'Tap 📅 to open the chronological plan. It walks you through the entire Bible in the order events occurred, tracking your streak and progress.',
     target: '#plan-btn',
   },
   {
-    title: 'Themes & Font Size',
-    desc:  'Press ◑ to toggle between the Classic Scroll and Modern Night themes. Use A− and A+ to adjust the text size to your comfort.',
-    target: '.sidebar-footer',
+    title: 'Your Daily Dashboard',
+    desc:  'The home screen shows your 365 plan progress, notes, bookmarks, and reading stats. Tap the user panel in the sidebar to return here anytime.',
+    target: '#home-plan-card',
   },
   {
-    title: 'Settings & AI Voices',
-    desc:  'Open Settings (⚙) to pick your reading font, line spacing, add API keys for online translations, or upgrade to AI-quality voices via ElevenLabs or OpenAI.',
-    target: '#settings-btn',
+    title: 'Themes & Settings',
+    desc:  'Use ◑ to toggle themes, A− / A+ for font size, and ⚙ for full settings including AI-quality voices (ElevenLabs or OpenAI).',
+    target: '.sidebar-footer',
   },
 ];
 
@@ -1524,12 +1650,23 @@ const Tutorial = {
 
   _show(step) {
     const s = TUTORIAL_STEPS[step];
-    $('tutorial-title').textContent     = s.title;
-    $('tutorial-desc').textContent      = s.desc;
+
+    // Steps that need the reader: auto-navigate to John 3 if reader is hidden
+    if (s.requiresReader && $('reader-screen').classList.contains('hidden')) {
+      navigateTo(42, 2, -1); // John 3 — a natural starting chapter
+    }
+    // Step 9 (Your Daily Dashboard) needs home screen
+    if (s.target === '#home-plan-card' && !$('home-screen').classList.contains('hidden') === false) {
+      showHomeScreen(); renderHome();
+    }
+
+    $('tutorial-title').textContent      = s.title;
+    $('tutorial-desc').textContent       = s.desc;
     $('tutorial-step-badge').textContent = `${step + 1} / ${TUTORIAL_STEPS.length}`;
-    $('tutorial-next').textContent      = step < TUTORIAL_STEPS.length - 1 ? 'Next →' : 'Done ✓';
+    $('tutorial-next').textContent       = step < TUTORIAL_STEPS.length - 1 ? 'Next →' : 'Done ✓';
     this._updateDots(step);
-    this._positionSpotlightAndBox(s.target);
+    // Small delay so DOM updates from navigateTo settle before measuring
+    setTimeout(() => this._positionSpotlightAndBox(s.target), 60);
   },
 
   _positionSpotlightAndBox(selector) {
@@ -1539,30 +1676,26 @@ const Tutorial = {
 
     const backdrop = this._overlay.querySelector('.tutorial-backdrop');
 
-    if (!selector) {
+    const _center = () => {
       sp.style.cssText = 'display:none';
       backdrop.classList.remove('has-spotlight');
       Object.assign(box.style, {
         top: '50%', left: '50%',
         transform: 'translate(-50%,-50%)',
       });
-      return;
-    }
+    };
+
+    if (!selector) { _center(); return; }
 
     const el = document.querySelector(selector);
-    if (!el) {
-      sp.style.cssText = 'display:none';
-      backdrop.classList.remove('has-spotlight');
-      Object.assign(box.style, {
-        top: '50%', left: '50%',
-        transform: 'translate(-50%,-50%)',
-      });
-      return;
-    }
+    if (!el) { _center(); return; }
+
+    const r = el.getBoundingClientRect();
+    // Element is in a hidden section (display:none parent) — center instead
+    if (r.width === 0 && r.height === 0) { _center(); return; }
 
     backdrop.classList.add('has-spotlight');
 
-    const r  = el.getBoundingClientRect();
     sp.style.cssText = '';
     Object.assign(sp.style, {
       top:    (r.top    - PAD) + 'px',

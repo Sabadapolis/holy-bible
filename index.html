@@ -93,6 +93,16 @@
         </div>
       </div>
 
+      <!-- User / Progress Panel -->
+      <div class="sidebar-user" id="sidebar-user" onclick="showHomeScreen(); renderHome();" title="View dashboard">
+        <div class="su-avatar" id="su-avatar">G</div>
+        <div class="su-details">
+          <div class="su-name" id="su-name">Guest Reader</div>
+          <div class="su-plan-line" id="su-plan-line">Day 1 of 365</div>
+          <div class="su-mini-stats" id="su-mini-stats">📝 0  ·  🔖 0</div>
+        </div>
+      </div>
+
       <div class="sidebar-footer">
         <button id="home-btn"     class="footer-btn" title="Home (H)">⌂</button>
         <button id="plan-btn"     class="footer-btn" title="Reading Plan">📅</button>
@@ -114,6 +124,12 @@
           <blockquote id="daily-text" class="daily-text"></blockquote>
           <cite id="daily-ref" class="daily-ref"></cite>
         </div>
+        <!-- 365 Plan Dashboard Card -->
+        <div id="home-plan-card" class="home-plan-card"></div>
+
+        <!-- Stats Row -->
+        <div id="home-stats-row" class="home-stats-row"></div>
+
         <div class="quick-nav">
           <h3 class="quick-nav-title">Popular Passages</h3>
           <div class="quick-grid" id="quick-grid"></div>
@@ -168,6 +184,7 @@
         <div class="reader-content">
           <div id="chapter-title" class="chapter-title"></div>
           <div id="niv-notice"    class="niv-notice hidden"></div>
+          <div id="reader-plan-indicator" class="hidden"></div>
           <div id="chapter-body"  class="chapter-body"></div>
           <div class="chapter-nav-bottom">
             <button id="prev-ch2" class="btn-secondary">← Previous</button>
