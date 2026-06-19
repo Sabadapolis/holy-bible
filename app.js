@@ -520,10 +520,17 @@ function changeFontSize(d) {
 // ─────────────────────────────────────────────
 // SIDEBAR
 // ─────────────────────────────────────────────
+function _setSidebarBackdrop(on) {
+  $('sidebar-backdrop')?.classList.toggle('active', on);
+}
+
 function toggleSidebar() {
-  const sb = $('sidebar');
-  if (window.innerWidth <= 700) {
+  const sb  = $('sidebar');
+  const mob = window.innerWidth <= 700;
+  if (mob) {
+    const opening = !sb.classList.contains('mobile-open');
     sb.classList.toggle('mobile-open');
+    _setSidebarBackdrop(opening);
   } else {
     sb.classList.toggle('collapsed');
   }
@@ -569,17 +576,19 @@ function populateChapterSelect() {
 // ─────────────────────────────────────────────
 // SCREENS
 // ─────────────────────────────────────────────
+function _hideAllScreens() {
+  ['home-screen','reader-screen','plan-screen','search-screen','completion-screen']
+    .forEach(id => hide($(id)));
+}
 function showHomeScreen() {
-  hide($('reader-screen')); hide($('search-screen')); hide($('plan-screen'));
-  show($('home-screen'));
-  TTS.stop();
-  hideVerseMenu();
+  _hideAllScreens(); show($('home-screen'));
+  TTS.stop(); hideVerseMenu();
+  updateMobileNav('home');
 }
 function showPlanScreen() {
-  hide($('home-screen')); hide($('reader-screen')); hide($('search-screen'));
-  show($('plan-screen'));
-  hideVerseMenu();
-  renderPlan();
+  _hideAllScreens(); show($('plan-screen'));
+  hideVerseMenu(); renderPlan();
+  updateMobileNav('plan');
 }
 
 // ─────────────────────────────────────────────
@@ -610,8 +619,9 @@ function navigateTo(b, c, v) {
   S.book    = b;
   S.chapter = c;
   hideVerseMenu();
-  hide($('home-screen')); hide($('search-screen')); hide($('plan-screen'));
+  _hideAllScreens();
   show($('reader-screen'));
+  updateMobileNav('read');
   updateActiveBook();
   populateBookSelect();
   populateChapterSelect();
@@ -669,6 +679,7 @@ async function renderChapter() {
   }
 
   updateReaderPlanIndicator();
+  updateChapterNavButtons();
   hide($('niv-notice'));
 
   // WEB: download if not cached
@@ -1281,7 +1292,19 @@ function wireEvents() {
   $('prev-ch').onclick  = prevChapter;
   $('next-ch').onclick  = nextChapter;
   $('prev-ch2').onclick = prevChapter;
-  $('next-ch2').onclick = nextChapter;
+  $('next-ch2').onclick = () => {
+    if (isTodaysPlanLastChapter() && !S.planDone[S.planDay]) {
+      showCompletionScreen();
+    } else {
+      nextChapter();
+    }
+  };
+  $('completion-save-btn').onclick = saveReflection;
+  $('completion-next-btn').onclick = () => {
+    if (!S.planDone[S.planDay]) homePlanMarkDone();
+    else { S.planDay = Math.min(365, S.planDay + 1); saveUserData(); }
+    showHomeScreen(); renderHome();
+  };
 
   $('book-select').onchange = e => {
     S.book = +e.target.value; S.chapter = 0;
@@ -1331,11 +1354,16 @@ function wireEvents() {
         !e.target.closest('#verse-menu') && !e.target.closest('.verse-block')) {
       hideVerseMenu();
     }
-    // Close mobile sidebar on outside click
+    // Close mobile sidebar on outside click or backdrop tap
     if (window.innerWidth<=700) {
       const sb = $('sidebar');
-      if (sb.classList.contains('mobile-open') && !sb.contains(e.target) && e.target!=$('mobile-menu-btn')) {
+      const bd = $('sidebar-backdrop');
+      if (sb.classList.contains('mobile-open') &&
+          !sb.contains(e.target) &&
+          e.target !== $('mobile-menu-btn') &&
+          e.target !== $('mbn-menu')) {
         sb.classList.remove('mobile-open');
+        _setSidebarBackdrop(false);
       }
     }
   });
@@ -1403,6 +1431,9 @@ async function startDownload() {
     await new Promise(r=>setTimeout(r,400));
     S.bibles.kjv = data;
     launchApp();
+    // First-time users download before init() checks tutDone, so trigger here
+    const tutDone = await dbGet('tutorial-done');
+    if (!tutDone) Tutorial.start();
   } catch(err) {
     $('download-btn').disabled=false;
     $('download-btn').textContent='Try Again';
@@ -1440,6 +1471,159 @@ function launchApp() {
 // ─────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// MOBILE NAV
+// ─────────────────────────────────────────────
+function updateMobileNav(tab) {
+  ['home','read','plan','saved','menu'].forEach(t => {
+    $(`mbn-${t}`)?.classList.toggle('active', t === tab);
+  });
+}
+
+function mobileOpenReader() {
+  if (!$('reader-screen').classList.contains('hidden')) {
+    updateMobileNav('read'); return;
+  }
+  // If a chapter has been read before, show it; otherwise open sidebar to book list
+  if (Object.keys(S.readChapters).length) {
+    navigateTo(S.book, S.chapter, -1);
+  } else {
+    toggleSidebar();
+  }
+  updateMobileNav('read');
+}
+
+function mobileOpenSaved() {
+  switchTab('bookmarks');
+  if (window.innerWidth <= 700) { $('sidebar').classList.add('mobile-open'); _setSidebarBackdrop(true); }
+  updateMobileNav('saved');
+}
+
+// ─────────────────────────────────────────────
+// END-OF-DAY DETECTION
+// ─────────────────────────────────────────────
+function isTodaysPlanLastChapter() {
+  if (!S.chronoPlan) return false;
+  const readings = S.chronoPlan[S.planDay - 1] || [];
+  if (!readings.length) return false;
+  const [lb, lc] = readings[readings.length - 1];
+  return lb === S.book && lc === S.chapter;
+}
+
+function updateChapterNavButtons() {
+  const btn = $('next-ch2');
+  if (!btn) return;
+  const isLast = isTodaysPlanLastChapter() && !S.planDone[S.planDay];
+  btn.textContent = isLast ? '✓ Finish Today\'s Reading' : 'Next →';
+  btn.classList.toggle('btn-finish-day', isLast);
+}
+
+// ─────────────────────────────────────────────
+// REFLECTION QUESTIONS (contextual per first book read)
+// ─────────────────────────────────────────────
+const REFLECTION_QUESTIONS = {
+  0:  'What does God\'s creative work in Genesis reveal about His nature, and how does sin entering the world deepen your understanding of why grace matters?',
+  1:  'How do you see God\'s faithfulness in delivering Israel from Egypt? What "Egypt" in your own life might God be calling you out of?',
+  2:  'Leviticus emphasizes holiness and separation. In what area of your life do you sense God calling you to a deeper level of consecration?',
+  3:  'Israel wandered for decades due to unbelief. What "wilderness season" in your faith has ultimately drawn you closer to God?',
+  4:  'Deuteronomy calls the people to remember and obey. What is one spiritual truth from your past that you need to remember and act on today?',
+  5:  'In Joshua, faithfulness brought victory while compromise led to defeat. Where might compromise be quietly weakening your walk with God?',
+  6:  'Judges shows a recurring cycle of sin, suffering, crying out, and deliverance. How do you see this pattern in your own spiritual life?',
+  7:  'Ruth shows extraordinary loyalty and is rewarded with redemption. How can your faithfulness in ordinary moments reflect God\'s love to those around you?',
+  8:  'Samuel and Saul reveal the danger of looking impressive outwardly while lacking inward devotion. How does God examine your heart versus outward appearances?',
+  9:  'David experienced stunning victories and devastating failures. What does his story teach you about God\'s mercy and the long-term consequences of sin?',
+  10: 'Solomon started with great wisdom yet let his heart drift through compromise. What distractions most tempt you away from wholehearted devotion to God?',
+  11: 'The divided kingdom shows the lasting impact of leadership choices. What kind of spiritual influence are you having on those closest to you?',
+  12: 'Chronicles emphasizes worship and seeking God first. How central is sincere worship in your everyday life right now?',
+  13: 'Ezra and Nehemiah show God bringing restoration after failure. What area of your spiritual life might God be calling you to rebuild?',
+  14: 'Esther showed courage at great personal risk. When has God placed you in a specific situation requiring courage to speak up or act?',
+  15: 'Job suffered without knowing why, yet refused to abandon God. How do you maintain trust in God\'s goodness when circumstances make no sense?',
+  17: 'The Psalms express every human emotion honestly before God. What emotion do you most need to bring to God honestly today?',
+  18: 'Proverbs says wisdom begins with fearing God. How does a reverent awe of God shape your everyday decisions?',
+  19: 'Ecclesiastes says life without God is meaningless. Where are you seeking meaning or satisfaction outside of God?',
+  20: 'Song of Solomon celebrates deep, intimate love. What does this book suggest about God\'s desire for a close, personal relationship with you?',
+  21: 'Isaiah\'s vision of God\'s holiness brought him to his knees. When did you last truly encounter the holiness of God, and how did it change you?',
+  22: 'Jeremiah stayed faithful despite rejection and grief. When have you remained obedient to God even when it was deeply costly?',
+  23: 'Lamentations grieves honestly yet clings to hope: "His mercies are new every morning." How do you hold onto hope in God during seasons of real loss?',
+  24: 'Ezekiel saw stunning visions of God\'s glory and confronted Israel\'s spiritual blindness. What might you be spiritually blind to in your own life right now?',
+  25: 'Daniel and his friends remained faithful in a culture hostile to their beliefs. What pressures does your culture place on you, and how are you responding?',
+  26: 'Hosea\'s faithful love for an unfaithful wife mirrors God\'s relentless love for us. How does this picture of God\'s love change how you view your own failures?',
+  28: 'Joel calls for wholehearted repentance and promises God\'s Spirit poured out on all people. What might genuine repentance look like for you today?',
+  29: 'Amos confronted comfortable religion and called for justice. In what ways might God be calling you to move beyond comfort into action for others?',
+  30: 'Jonah ran from God\'s call and was redirected. Where might you be resisting what God has asked you to do, and what would obedience look like?',
+  33: 'Nahum declares that God is slow to anger but does not leave the guilty unpunished. How does both the patience and the justice of God shape how you live?',
+  36: 'Haggai challenged God\'s people who were busy building their own houses while God\'s house lay in ruins. What priorities in your life may be misaligned?',
+  37: 'Zechariah is full of visions pointing to the coming Messiah. How does the certainty of God\'s promises strengthen your faith in what is still ahead?',
+  38: 'Malachi closes the Old Testament calling people back to sincere worship and covenant faithfulness. What would returning wholeheartedly to God look like for you?',
+  39: 'In the Sermon on the Mount, Jesus reframes everything the world values. Which beatitude or teaching most challenges your current way of living?',
+  40: 'Mark shows Jesus acting with urgency and serving without hesitation. What is one thing Jesus is calling you to do today without delay?',
+  41: 'Luke highlights Jesus\' compassion for the overlooked and marginalized. Who in your life or community might God be calling you to notice and serve?',
+  42: 'John reveals Jesus as the eternal Word, the light of the world, the bread of life. What does it mean practically for you that Jesus is the way, the truth, and the life?',
+  43: 'Acts shows the Spirit-empowered church transforming the world. What would it look like for your life to be more surrendered to the Holy Spirit\'s direction?',
+  44: 'Romans lays out the full scope of the gospel — sin, grace, justification, transformation. Which part of this do you most need to rest in today?',
+  45: 'Paul addresses division and pride in Corinth. What attitudes in your relationships might be causing division rather than building up others?',
+  47: 'Galatians is Paul\'s passionate defense of grace over religious performance. Where do you find yourself trying to earn God\'s approval rather than resting in His grace?',
+  48: 'Ephesians reveals who we truly are in Christ. Which aspect of your identity in Christ do you struggle to genuinely believe about yourself?',
+  49: 'Philippians was written from prison yet overflows with joy. What is the biggest obstacle to your joy right now, and how does Paul\'s contentment challenge you?',
+  50: 'Colossians declares that Christ is supreme over all things. In what area of your life does Christ need to have greater first place?',
+  51: 'Thessalonians encourages believers to hold firm while waiting for Christ\'s return. How does the hope of eternity shape how you live today?',
+  57: 'Hebrews calls us to fix our eyes on Jesus, who is greater than anything else. How does focusing on Jesus change how you face today\'s specific challenges?',
+  58: 'James says that faith without works is dead. What evidence of living, active faith do you see — or wish you saw — in your daily life?',
+  59: 'Peter writes that suffering, when endured faithfully, refines and strengthens. How does knowing suffering can deepen your faith change how you respond to difficulty?',
+  60: 'John\'s letters say that love for others is the defining mark of knowing God. How honestly do you love the people around you, including those who are difficult?',
+  64: 'Jude urges believers to contend earnestly for the faith once delivered. What does it mean for you personally to guard and hold firmly to the truth of the gospel?',
+  65: 'Revelation shows Christ\'s ultimate victory over all evil and the renewal of all things. How does the certainty of Jesus\' triumph shape the way you live right now?',
+};
+
+function getReflectionQuestion(readings) {
+  const firstBook = readings[0]?.[0];
+  return REFLECTION_QUESTIONS[firstBook] ??
+    'What stood out most to you in today\'s reading, and how does it connect to your life or faith right now?';
+}
+
+// ─────────────────────────────────────────────
+// COMPLETION / REFLECTION SCREEN
+// ─────────────────────────────────────────────
+function showCompletionScreen() {
+  _hideAllScreens();
+  TTS.stop(); hideVerseMenu();
+  updateMobileNav('read');
+
+  const day      = S.planDay;
+  const readings = S.chronoPlan?.[day - 1] || [];
+
+  $('completion-badge').textContent = `Day ${day} of 365 Complete`;
+  $('completion-heading').textContent =
+    day % 7 === 0
+      ? `Week ${Math.ceil(day / 7)} done — wonderful faithfulness!`
+      : 'Well done — you finished today\'s reading!';
+
+  $('completion-readings').innerHTML = readings.map(([b, c]) =>
+    `<button class="home-chip" onclick="navigateTo(${b},${c},-1)">${chapterRefStr(b, c)}</button>`
+  ).join('');
+
+  $('completion-question').textContent = getReflectionQuestion(readings);
+
+  // Pre-fill saved reflection if exists
+  dbGet(`reflection-${day}`).then(saved => {
+    $('completion-textarea').value = saved?.text || '';
+    hide($('completion-saved-msg'));
+  });
+
+  show($('completion-screen'));
+  $('main').scrollTo({ top: 0, behavior: 'instant' });
+}
+
+async function saveReflection() {
+  const day  = S.planDay;
+  const text = $('completion-textarea').value.trim();
+  await dbSet(`reflection-${day}`, { text, savedAt: Date.now(), shared: false });
+  show($('completion-saved-msg'));
+  // Also mark the day complete
+  if (!S.planDone[day]) homePlanMarkDone();
+  showToast('Reflection saved ✓');
+}
+
 // ─────────────────────────────────────────────
 // DASHBOARD HELPERS
 // ─────────────────────────────────────────────
@@ -1568,51 +1752,57 @@ const TUTORIAL_STEPS = [
   },
   {
     title: 'Browse Books',
-    desc:  'The sidebar lists every book of the Bible. Tap any book name to navigate to it — Old Testament above, New Testament below.',
+    desc:  'The left panel lists every book of the Bible. Tap any book to navigate — Old Testament above, New Testament below. On mobile, tap ☰ Menu to open this panel.',
     target: '#ot-books',
+    requiresSidebar: true,
   },
   {
     title: 'Search the Bible',
-    desc:  'Type any word or phrase here to search all 66 books instantly. Results are clickable and take you straight to the verse.',
+    desc:  'Type any word or phrase in the search box to find every matching verse across all 66 books. Results are clickable.',
     target: '#search-input',
+    requiresSidebar: true,
   },
   {
     title: 'Switch Translations',
-    desc:  'Use the translation selector in the reader bar to switch between KJV and WEB (offline), or NIV/NLT/NASB via a free API.Bible key in Settings.',
+    desc:  'Use the translation selector in the reader bar to switch between KJV and WEB (available offline), or NIV/NLT/NASB (requires a free API.Bible key in Settings).',
     target: '#translation-sel',
     requiresReader: true,
   },
   {
     title: 'Interact with Verses',
-    desc:  'Tap any verse to open the action menu — highlight it in four colors, add a personal note, bookmark it, or copy it to share.',
+    desc:  'Tap any verse to open the action menu — highlight in four colors, add a personal note, bookmark it, or copy to share.',
     target: '#chapter-body',
     requiresReader: true,
   },
   {
     title: 'Listen to a Chapter',
-    desc:  'Tap the 🔊 button to hear the chapter read aloud. Control speed and voice in the audio bar that appears beneath the reader toolbar.',
+    desc:  'Tap the 🔊 button to hear the chapter read aloud. Control reading speed and voice in the audio bar that appears below the toolbar.',
     target: '#tts-toggle',
     requiresReader: true,
   },
   {
     title: 'Bookmarks & Notes',
-    desc:  'Your saved bookmarks and notes appear in the "Saved" and "Notes" tabs in the sidebar — always one tap away from anywhere in the app.',
+    desc:  'Your saved bookmarks and notes appear in the Saved and Notes tabs at the top of the side panel — always one tap away.',
     target: '.sidebar-tabs',
+    requiresSidebar: true,
   },
   {
     title: '365-Day Reading Plan',
-    desc:  'Tap 📅 to open the chronological plan. It walks you through the entire Bible in the order events occurred, tracking your streak and progress.',
+    desc:  'Tap the 📅 Plan button to open your chronological reading plan. It takes you through the entire Bible in the order events occurred.',
     target: '#plan-btn',
+    requiresSidebar: true,
   },
   {
     title: 'Your Daily Dashboard',
-    desc:  'The home screen shows your 365 plan progress, notes, bookmarks, and reading stats. Tap the user panel in the sidebar to return here anytime.',
+    desc:  'The home screen shows your plan progress, streak, notes, and bookmarks. On mobile, tap ⌂ Home in the bottom bar to return here anytime.',
     target: '#home-plan-card',
+    requiresHome: true,
   },
   {
     title: 'Themes & Settings',
-    desc:  'Use ◑ to toggle themes, A− / A+ for font size, and ⚙ for full settings including AI-quality voices (ElevenLabs or OpenAI).',
+    desc:  'Use ◑ to toggle between Classic Scroll and Modern Night themes, A− / A+ for font size, and ⚙ for full settings including AI voices.',
     target: '.sidebar-footer',
+    requiresSidebar: true,
   },
 ];
 
@@ -1649,14 +1839,34 @@ const Tutorial = {
   },
 
   _show(step) {
-    const s = TUTORIAL_STEPS[step];
+    const s    = TUTORIAL_STEPS[step];
+    const mob  = window.innerWidth <= 700;
+    const sb   = $('sidebar');
 
-    // Steps that need the reader: auto-navigate to John 3 if reader is hidden
-    if (s.requiresReader && $('reader-screen').classList.contains('hidden')) {
-      navigateTo(42, 2, -1); // John 3 — a natural starting chapter
+    // Steps that need the sidebar panel open
+    if (s.requiresSidebar) {
+      if (mob) {
+        sb.classList.add('mobile-open');
+        _setSidebarBackdrop(true);
+      } else {
+        sb.classList.remove('collapsed');
+      }
     }
-    // Step 9 (Your Daily Dashboard) needs home screen
-    if (s.target === '#home-plan-card' && !$('home-screen').classList.contains('hidden') === false) {
+
+    // Steps that need the reader — close sidebar on mobile, open John 3
+    if (s.requiresReader) {
+      if (mob) {
+        sb.classList.remove('mobile-open');
+        _setSidebarBackdrop(false);
+      }
+      if ($('reader-screen').classList.contains('hidden')) {
+        navigateTo(42, 2, -1); // John 3
+      }
+    }
+
+    // Steps that need the home screen
+    if (s.requiresHome && $('home-screen').classList.contains('hidden')) {
+      if (mob) { sb.classList.remove('mobile-open'); _setSidebarBackdrop(false); }
       showHomeScreen(); renderHome();
     }
 
@@ -1665,8 +1875,8 @@ const Tutorial = {
     $('tutorial-step-badge').textContent = `${step + 1} / ${TUTORIAL_STEPS.length}`;
     $('tutorial-next').textContent       = step < TUTORIAL_STEPS.length - 1 ? 'Next →' : 'Done ✓';
     this._updateDots(step);
-    // Small delay so DOM updates from navigateTo settle before measuring
-    setTimeout(() => this._positionSpotlightAndBox(s.target), 60);
+    // Delay so DOM updates (navigateTo, sidebar open) settle before measuring
+    setTimeout(() => this._positionSpotlightAndBox(s.target), 80);
   },
 
   _positionSpotlightAndBox(selector) {

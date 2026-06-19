@@ -45,7 +45,10 @@
   ════════════════════════════════════════════ -->
   <div id="app" class="app hidden">
 
-    <!-- Mobile menu button (small screens) -->
+    <!-- Mobile sidebar backdrop -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+
+    <!-- Mobile menu button (hidden when bottom nav shows) -->
     <button id="mobile-menu-btn" class="mobile-menu-btn" aria-label="Open menu">☰</button>
 
     <!-- ── SIDEBAR ── -->
@@ -230,6 +233,29 @@
         <div id="plan-days-list" class="plan-days-list"></div>
       </section>
 
+      <!-- Day Completion / Reflection -->
+      <section id="completion-screen" class="screen completion-screen hidden">
+        <div class="completion-icon">✝</div>
+        <div class="completion-badge" id="completion-badge">Day 1 of 365 Complete</div>
+        <h2 class="completion-heading" id="completion-heading">Well done — you finished today's reading!</h2>
+        <div class="completion-readings" id="completion-readings"></div>
+        <div class="completion-divider"></div>
+        <div class="completion-question-label">Today's Reflection</div>
+        <p class="completion-question" id="completion-question"></p>
+        <textarea id="completion-textarea" class="completion-textarea"
+                  placeholder="Write your thoughts here… there are no wrong answers."
+                  rows="5"></textarea>
+        <div id="completion-saved-msg" class="completion-saved-msg hidden">✓ Reflection saved</div>
+        <div class="completion-actions">
+          <button id="completion-save-btn" class="btn-primary">Save Reflection</button>
+          <button class="btn-secondary" disabled title="Shared reading groups — coming soon">Share with Group</button>
+        </div>
+        <div class="completion-footer-btns">
+          <button class="btn-secondary" onclick="showHomeScreen(); renderHome();">← Home</button>
+          <button id="completion-next-btn" class="btn-primary">Next Day →</button>
+        </div>
+      </section>
+
       <!-- Search -->
       <section id="search-screen" class="screen search-screen hidden">
         <div class="search-hdr">
@@ -240,7 +266,27 @@
       </section>
 
     </main>
-  </div>
+
+    <!-- Mobile bottom navigation bar -->
+    <nav class="mobile-bottom-nav" id="mobile-bottom-nav" aria-label="Main navigation">
+      <button class="mbn-btn" id="mbn-home" onclick="showHomeScreen();renderHome();updateMobileNav('home')">
+        <span class="mbn-icon">⌂</span><span class="mbn-label">Home</span>
+      </button>
+      <button class="mbn-btn" id="mbn-read" onclick="mobileOpenReader()">
+        <span class="mbn-icon">📖</span><span class="mbn-label">Read</span>
+      </button>
+      <button class="mbn-btn" id="mbn-plan" onclick="showPlanScreen();updateMobileNav('plan')">
+        <span class="mbn-icon">📅</span><span class="mbn-label">Plan</span>
+      </button>
+      <button class="mbn-btn" id="mbn-saved" onclick="mobileOpenSaved()">
+        <span class="mbn-icon">🔖</span><span class="mbn-label">Saved</span>
+      </button>
+      <button class="mbn-btn" id="mbn-menu" onclick="toggleSidebar()">
+        <span class="mbn-icon">☰</span><span class="mbn-label">Menu</span>
+      </button>
+    </nav>
+
+  </div><!-- /#app -->
 
   <!-- ═══════════════════════════════════════════
        VERSE ACTION MENU
